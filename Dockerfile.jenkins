@@ -1,0 +1,16 @@
+FROM jenkins/jenkins:lts
+USER root
+
+# Install Python and curl
+RUN apt-get update && apt-get install -y python3 python3-venv python3-pip curl
+
+# Install uv globally
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.cargo/bin/uv /usr/local/bin/uv \
+    && mv /root/.cargo/bin/uvx /usr/local/bin/uvx || true
+
+# Just to be safe for typical installer paths
+RUN cp /root/.local/bin/uv /usr/local/bin/ || true 
+RUN cp /root/.local/bin/uvx /usr/local/bin/ || true
+
+USER jenkins

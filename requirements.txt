@@ -1,0 +1,55 @@
+# --- CORE AGENT FRAMEWORK ---
+langchain
+langchain-community
+langchain-groq
+langgraph
+langgraph-checkpoint-sqlite
+langchain-core
+pydantic
+
+# --- RAG LAYER ---
+chromadb
+pypdf
+sentence-transformers
+
+# --- ML LAYER ---
+scikit-learn
+pandas
+# We keep this ONE restriction because NumPy 2.0 breaks everything right now
+numpy<2.0.0
+joblib
+
+# --- DATA & DATABASE ---
+sqlalchemy
+sqlite-utils
+alembic
+
+# --- FRONTEND & TOOLS ---
+streamlit>=1.35.0
+tavily-python
+python-dotenv
+loguru
+
+# --- DEV TOOLS ---
+pytest
+
+
+
+# notbook 
+matplotlib
+seaborn
+
+# embedding 
+langchain-huggingface
+
+# server 
+flask
+
+# --- HOTEL PLATFORM BACKEND (Phase 2) ---
+fastapi
+uvicorn[standard]
+pydantic-settings
+email-validator
+httpx
+PyJWT
+sqlglot

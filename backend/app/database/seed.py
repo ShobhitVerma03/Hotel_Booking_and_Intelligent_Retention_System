@@ -1,0 +1,26 @@
+from decimal import Decimal
+
+from sqlalchemy.orm import Session
+
+from backend.app.models.entities import Room, User
+from backend.app.models.enums import RoomStatus, UserRole
+from backend.app.core.config import get_settings
+from backend.app.services.auth import hash_password
+
+
+def seed_database(db: Session) -> None:
+    """Insert only non-sensitive local development reference data."""
+    if db.query(Room).first() is None:
+        db.add_all([
+            Room(room_number="101", room_type="Standard", price_per_night=Decimal("120.00"), capacity=2, status=RoomStatus.AVAILABLE),
+            Room(room_number="201", room_type="Deluxe", price_per_night=Decimal("185.00"), capacity=2, status=RoomStatus.AVAILABLE),
+            Room(room_number="301", room_type="Suite", price_per_night=Decimal("320.00"), capacity=4, status=RoomStatus.AVAILABLE),
+        ])
+    settings = get_settings()
+    manager = db.query(User).filter(User.email == settings.dev_manager_email).first()
+    if manager is None:
+        manager = User(email=settings.dev_manager_email, role=UserRole.MANAGER)
+        db.add(manager)
+    if settings.dev_manager_password:
+        manager.password_hash = hash_password(settings.dev_manager_password)
+    db.commit()

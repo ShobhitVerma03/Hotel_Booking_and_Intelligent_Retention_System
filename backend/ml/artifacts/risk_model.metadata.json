@@ -1,0 +1,44 @@
+{
+  "model_type": "RandomForestClassifier",
+  "model_version": "synthetic-dev-v1",
+  "dataset_type": "SYNTHETIC_DEVELOPMENT",
+  "features": [
+    "city",
+    "hotel_type",
+    "room_type",
+    "booking_channel",
+    "previous_bookings",
+    "previous_cancellations",
+    "completed_stays",
+    "cancellation_rate",
+    "average_previous_booking_value_inr",
+    "current_booking_value_inr",
+    "lead_time_days",
+    "length_of_stay",
+    "number_of_guests",
+    "booking_month",
+    "customer_tenure_days",
+    "previous_retention_offers",
+    "previous_offer_acceptance_rate",
+    "payment_type",
+    "weekend_booking"
+  ],
+  "target": "cancelled",
+  "metrics": {
+    "accuracy": 0.728,
+    "precision": 0.42,
+    "recall": 0.22340425531914893,
+    "f1": 0.2916666666666667,
+    "roc_auc": 0.6268266828197168,
+    "confusion_matrix": [
+      [
+        252,
+        29
+      ],
+      [
+        73,
+        21
+      ]
+    ]
+  }
+}

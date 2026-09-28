@@ -1,0 +1,26 @@
+# Production dependencies for the FastAPI platform only.  The legacy prototype
+# has a separate root requirements file and is intentionally not used by Docker.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+SQLAlchemy>=2.0,<3
+alembic>=1.14,<2
+pydantic>=2.9,<3
+pydantic-settings>=2.6,<3
+email-validator>=2.2,<3
+PyJWT>=2.9,<3
+bcrypt>=4.2,<6
+psycopg[binary]>=3.2,<4
+httpx>=0.27,<1
+sqlglot>=26,<30
+numpy>=2.0,<3
+pandas>=2.2,<4
+scipy>=1.14,<2
+scikit-learn==1.9.1
+joblib>=1.4,<2
+chromadb==1.5.9
+pypdf>=5,<7
+sentence-transformers>=5,<6
+langgraph>=1,<2
+langgraph-checkpoint-sqlite>=3,<4
+# Optional Phase 10 multilingual planner when NL_SQL_LLM_ENABLED=true.
+langchain-groq>=1,<2
