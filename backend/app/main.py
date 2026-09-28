@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
-    # create_all supports a zero-friction local start; Alembic is the production migration path.
-    Base.metadata.create_all(bind=engine)
+    # create_all is intentionally opt-in for lightweight local development.
+    # Production containers run Alembic in their entrypoint before Uvicorn.
+    if settings.auto_create_schema:
+        logger.warning("AUTO_CREATE_SCHEMA is enabled; this is for local development only")
+        Base.metadata.create_all(bind=engine)
     if settings.seed_database:
         with SessionLocal() as db:
             seed_database(db)

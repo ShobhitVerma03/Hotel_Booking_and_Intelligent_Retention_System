@@ -18,10 +18,10 @@ docker compose up --build
 
 URLs:
 
-- Customer portal: `http://localhost:${CUSTOMER_FRONTEND_PORT:-8080}`
-- Manager portal: `http://localhost:${MANAGER_FRONTEND_PORT:-8081}`
-- Backend health: `http://localhost:${BACKEND_PORT:-8000}/api/v1/health`
-- Backend OpenAPI: `http://localhost:${BACKEND_PORT:-8000}/docs`
+- Customer portal: `http://localhost:18080` by default
+- Manager portal: `http://localhost:18081` by default
+- Backend health: `http://localhost:18000/api/v1/health` by default
+- Backend OpenAPI: `http://localhost:18000/docs` by default
 
 The included Docker environment template uses `18000`, `18080`, and `18081`
 to avoid common local port collisions; change only these host-port variables
@@ -37,10 +37,10 @@ state across restarts. To intentionally remove all local container data, run
 
 ## Startup and data
 
-The backend waits by retrying Alembic migrations, applies migrations once, then
-runs the existing idempotent seed operation. The configured manager account is
-created or updated only through `DEV_MANAGER_EMAIL` and `DEV_MANAGER_PASSWORD`.
-Room reference data is not duplicated.
+The backend waits by retrying Alembic migrations and applies only unapplied
+migrations. It runs the idempotent seed operation only when `SEED_DATABASE=true`.
+The configured manager account is created when absent; its password changes only
+when `RESET_SEED_MANAGER_PASSWORD=true`. Room reference data is not duplicated.
 
 Persistent named volumes are:
 
@@ -48,8 +48,9 @@ Persistent named volumes are:
 - `rag_data`: local Chroma policy collection.
 - `langgraph_data`: workflow checkpoints.
 
-The trusted policy PDF is copied into the backend image for server-side RAG
-ingestion only. No frontend route exposes it.
+The project-owned policy PDF is copied into the backend image for server-side
+RAG ingestion only. No frontend route exposes it. The persistent RAG volume
+keeps the Chroma collection across restarts; ingestion uses stable IDs.
 
 ## Configuration
 
@@ -65,7 +66,7 @@ hard-coded in source.
 ```powershell
 docker compose config
 docker compose up --build
-Invoke-RestMethod http://localhost:8000/api/v1/health
+Invoke-RestMethod http://localhost:18000/api/v1/health
 docker compose logs backend
 ```
 

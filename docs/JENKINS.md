@@ -7,15 +7,18 @@ logs, and always removes the stack.
 
 ## Prerequisites
 
-Use a Linux Jenkins agent labelled `docker` with Git, Docker Engine, Docker
-Compose v2, Node.js/npm, and Python 3. Jenkins must be permitted to access the
-Docker daemon using a properly secured Docker group or remote daemon. Required
-plugins: Pipeline, Git, Credentials Binding, and Workspace Cleanup (plus JUnit
-or HTML Publisher if the installation uses those report formats).
+The current controller runs as a Windows service. Its selected agent needs Git,
+Docker Desktop/Engine access, Docker Compose v2, Node.js/npm, and Python 3 on
+the service account's PATH. Confirm that account can run `docker version`
+before building. The declarative Jenkinsfile uses PowerShell steps and does not
+require a Linux-only label. Required plugins: Pipeline, Git, Credentials
+Binding, and Workspace Cleanup (plus JUnit or HTML Publisher if used).
 
-Create a Pipeline-from-SCM job pointing to the repository root and select the
-root `Jenkinsfile`. A GitHub webhook or SCM polling can trigger builds after a
-first manual build.
+Create a **Pipeline** job using **Pipeline script from SCM**, Git repository
+`https://github.com/ShobhitVerma03/Hotel_Booking_and_Intelligent_Retention_System.git`,
+branch `*/main`, and script path `Jenkinsfile`. The repository is public, so no
+GitHub credential is required. Save, select **Build Now**, inspect Console
+Output and archived logs, then optionally configure a webhook or SCM polling.
 
 ## Credentials
 
@@ -50,9 +53,9 @@ production database.
 
 ## Troubleshooting
 
-If startup times out, inspect `docker-compose.log`, Docker permissions, host
-ports `18000`, `18080`, `18081`, and registry access. A command failure marks
-the build failed; do not weaken application security controls to mask it.
+If startup times out, inspect `docker-compose.log`, Docker permissions for the
+Windows service account, host ports `18000`, `18080`, `18081`, and registry
+access. A command failure marks the build failed; do not weaken security.
 
 The local Windows `.venv-ml` can fail two ML tests because Windows Application
 Control blocks scikit-learn's `_gradient_boosting` native DLL. Jenkins does not

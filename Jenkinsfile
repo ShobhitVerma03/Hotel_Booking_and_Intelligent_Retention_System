@@ -1,5 +1,7 @@
 pipeline {
-    agent { label 'docker' }
+    // The controller runs as a Windows service. Any selected agent needs Git,
+    // Docker access, Docker Compose v2, Python 3, Node.js, and npm.
+    agent any
 
     options {
         timestamps()
@@ -12,6 +14,8 @@ pipeline {
         BACKEND_PORT = '18000'
         CUSTOMER_FRONTEND_PORT = '18080'
         MANAGER_FRONTEND_PORT = '18081'
+        POSTGRES_DB = 'hotel_platform_ci'
+        POSTGRES_USER = 'hotel_platform_ci'
         DEV_MANAGER_EMAIL = 'manager@example.com'
         NL_SQL_LLM_ENABLED = 'false'
         COMPOSE_PROJECT_NAME = "hotel-ci-${BUILD_NUMBER}"
@@ -19,20 +23,16 @@ pipeline {
     }
 
     stages {
-        stage('Checkout') {
-            steps { checkout scm }
-        }
+        stage('Checkout') { steps { checkout scm } }
 
         stage('Backend Validation') {
             steps {
-                sh '''
-                    set -eu
-                    # This is the production backend image, not a host virtualenv.
-                    docker build -f backend/Dockerfile -t "$BACKEND_CI_IMAGE" .
-                    docker run --rm --entrypoint sh "$BACKEND_CI_IMAGE" -c '
-                        python -m compileall -q backend
-                        python -m unittest discover -s backend/tests -v
-                    ' | tee backend-test.log
+                powershell '''
+                    $ErrorActionPreference = 'Stop'
+                    docker build -f backend/Dockerfile -t $env:BACKEND_CI_IMAGE .
+                    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                    docker run --rm --entrypoint sh $env:BACKEND_CI_IMAGE -c "python -m compileall -q backend && python -m unittest discover -s backend/tests -v" | Tee-Object -FilePath backend-test.log
+                    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 '''
             }
         }
@@ -40,11 +40,11 @@ pipeline {
         stage('Customer Frontend Validation') {
             steps {
                 dir('frontend/customer') {
-                    sh '''
-                        set -eu
-                        npm ci
-                        npm test
-                        npm run build
+                    powershell '''
+                        $ErrorActionPreference = 'Stop'
+                        npm ci; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                        npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                        npm run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                     '''
                 }
             }
@@ -53,87 +53,73 @@ pipeline {
         stage('Manager Frontend Validation') {
             steps {
                 dir('frontend/manager') {
-                    sh '''
-                        set -eu
-                        npm ci
-                        npm test
-                        npm run build
+                    powershell '''
+                        $ErrorActionPreference = 'Stop'
+                        npm ci; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                        npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                        npm run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                     '''
                 }
             }
         }
 
         stage('Docker Compose Configuration Validation') {
-            steps {
-                withCredentials([
-                    string(credentialsId: 'hotel-ci-postgres-password', variable: 'POSTGRES_PASSWORD'),
-                    string(credentialsId: 'hotel-ci-jwt-secret', variable: 'JWT_SECRET_KEY'),
-                    string(credentialsId: 'hotel-ci-manager-password', variable: 'DEV_MANAGER_PASSWORD')
-                ]) {
-                    sh 'docker compose config --quiet'
-                }
-            }
+            steps { script { withCiSecrets { powershell 'docker compose config --quiet; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }' } } }
         }
 
         stage('Docker Image Build') {
-            steps {
-                withCredentials([
-                    string(credentialsId: 'hotel-ci-postgres-password', variable: 'POSTGRES_PASSWORD'),
-                    string(credentialsId: 'hotel-ci-jwt-secret', variable: 'JWT_SECRET_KEY'),
-                    string(credentialsId: 'hotel-ci-manager-password', variable: 'DEV_MANAGER_PASSWORD')
-                ]) {
-                    sh 'docker compose build'
-                }
-            }
+            steps { script { withCiSecrets { powershell 'docker compose build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }' } } }
         }
 
         stage('Container Startup') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'hotel-ci-postgres-password', variable: 'POSTGRES_PASSWORD'),
-                    string(credentialsId: 'hotel-ci-jwt-secret', variable: 'JWT_SECRET_KEY'),
-                    string(credentialsId: 'hotel-ci-manager-password', variable: 'DEV_MANAGER_PASSWORD')
-                ]) {
-                    sh '''
-                        set -eu
-                        docker compose up -d
-                        python3 docker/ci_wait_for_services.py
+                script { withCiSecrets {
+                    powershell '''
+                        $ErrorActionPreference = 'Stop'
+                        docker compose up -d; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                        python docker/ci_wait_for_services.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                         docker compose exec -T backend python -m alembic -c /app/backend/alembic.ini current
+                        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                     '''
-                }
+                } }
             }
         }
 
         stage('Integration and Smoke Tests') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'hotel-ci-postgres-password', variable: 'POSTGRES_PASSWORD'),
-                    string(credentialsId: 'hotel-ci-jwt-secret', variable: 'JWT_SECRET_KEY'),
-                    string(credentialsId: 'hotel-ci-manager-password', variable: 'DEV_MANAGER_PASSWORD')
-                ]) {
-                    sh 'python3 docker/ci_smoke_test.py | tee integration-smoke.log'
-                }
+                script { withCiSecrets {
+                    powershell '''
+                        $ErrorActionPreference = 'Stop'
+                        python docker/ci_smoke_test.py | Tee-Object -FilePath integration-smoke.log
+                        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                    '''
+                } }
             }
         }
     }
 
     post {
         always {
-            script {
-                withCredentials([
-                    string(credentialsId: 'hotel-ci-postgres-password', variable: 'POSTGRES_PASSWORD'),
-                    string(credentialsId: 'hotel-ci-jwt-secret', variable: 'JWT_SECRET_KEY'),
-                    string(credentialsId: 'hotel-ci-manager-password', variable: 'DEV_MANAGER_PASSWORD')
-                ]) {
-                    sh '''
-                        docker compose logs --no-color > docker-compose.log || true
-                        docker compose down --volumes --remove-orphans || true
-                    '''
-                }
-            }
+            script { withCiSecrets {
+                powershell '''
+                    $ErrorActionPreference = 'Continue'
+                    docker compose logs --no-color | Out-File -FilePath docker-compose.log -Encoding utf8
+                    docker compose down --volumes --remove-orphans
+                '''
+            } }
             archiveArtifacts artifacts: 'backend-test.log,integration-smoke.log,docker-compose.log', allowEmptyArchive: true
         }
         success { echo 'CI validation completed successfully.' }
         failure { echo 'CI validation failed; safe logs are archived when available.' }
+    }
+}
+
+def withCiSecrets(Closure body) {
+    withCredentials([
+        string(credentialsId: 'hotel-ci-postgres-password', variable: 'POSTGRES_PASSWORD'),
+        string(credentialsId: 'hotel-ci-jwt-secret', variable: 'JWT_SECRET_KEY'),
+        string(credentialsId: 'hotel-ci-manager-password', variable: 'DEV_MANAGER_PASSWORD')
+    ]) {
+        body()
     }
 }

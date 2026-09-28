@@ -59,10 +59,6 @@ data/processed/*
 !data/processed/.gitkeep
 # (If your dummy CSV is small and you want to push it, remove the lines above)
 
-# The operational retention policy is confidential.  Keep a .gitkeep directory
-# marker, but provision the real PDF through an approved private channel.
-data/policy/*.pdf
-
 # ===========================
 # 5. IDE & OS JUNK
 # ===========================
@@ -81,5 +77,9 @@ frontend/*/dist/
 .ipynb_checkpoints/
 
 # New platform runtime state
-data/hotel_platform.db
+data/*.db
 backend/.pytest_cache/
+.pytest_cache/
+frontend/*/build/
+data/*.db-*
+notebooks/*.db

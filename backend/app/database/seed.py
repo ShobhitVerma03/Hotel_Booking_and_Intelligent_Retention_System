@@ -18,9 +18,12 @@ def seed_database(db: Session) -> None:
         ])
     settings = get_settings()
     manager = db.query(User).filter(User.email == settings.dev_manager_email).first()
-    if manager is None:
+    manager_created = manager is None
+    if manager_created:
         manager = User(email=settings.dev_manager_email, role=UserRole.MANAGER)
         db.add(manager)
-    if settings.dev_manager_password:
+    # A startup must not silently rotate the manager password. Set the reset
+    # flag only for an intentional, controlled local recovery operation.
+    if settings.dev_manager_password and (manager_created or settings.reset_seed_manager_password):
         manager.password_hash = hash_password(settings.dev_manager_password)
     db.commit()

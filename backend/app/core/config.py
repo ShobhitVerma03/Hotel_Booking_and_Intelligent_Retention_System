@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,7 +13,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/hotel_platform.db"
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:8080,http://localhost:8081"
-    seed_database: bool = True
+    # Schema creation is for lightweight local development only. Production
+    # must run Alembic before the application accepts traffic.
+    auto_create_schema: bool = False
+    seed_database: bool = False
+    reset_seed_manager_password: bool = False
     first_time_welcome_discount: float = 10.0
     jwt_secret_key: str = ""
     groq_api_key: str = ""
@@ -51,6 +56,16 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        if self.app_env.lower() in {"production", "prod"}:
+            invalid_secret = not self.jwt_secret_key or self.jwt_secret_key.lower().startswith("change-this") or self.jwt_secret_key.upper().startswith("CHANGE_ME")
+            if invalid_secret:
+                raise ValueError("JWT_SECRET_KEY must be a non-placeholder secret in production")
+            if self.auto_create_schema:
+                raise ValueError("AUTO_CREATE_SCHEMA must be false in production; run Alembic migrations instead")
+        return self
 
     @property
     def is_sqlite(self) -> bool:

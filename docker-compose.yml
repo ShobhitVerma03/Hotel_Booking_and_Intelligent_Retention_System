@@ -22,20 +22,22 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
       APP_ENV: docker
       LOG_LEVEL: INFO
-      SEED_DATABASE: "true"
+      AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-false}
+      SEED_DATABASE: ${SEED_DATABASE:-true}
+      RESET_SEED_MANAGER_PASSWORD: ${RESET_SEED_MANAGER_PASSWORD:-false}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 30
       DEV_MANAGER_EMAIL: ${DEV_MANAGER_EMAIL:?Set DEV_MANAGER_EMAIL in .env}
       DEV_MANAGER_PASSWORD: ${DEV_MANAGER_PASSWORD:?Set DEV_MANAGER_PASSWORD in .env}
-      ML_MODEL_PATH: backend/ml/artifacts/risk_model.joblib
-      RAG_ENABLED: "true"
-      RAG_COLLECTION_NAME: hotel_retention_policy
-      RAG_PERSIST_DIRECTORY: /var/lib/hotel/rag_store
-      RAG_EMBEDDING_MODEL: all-MiniLM-L6-v2
-      RAG_POLICY_DOCUMENT_PATH: data/policy/Company_Retention_Policy_2026.pdf
-      LANGGRAPH_CHECKPOINT_PATH: /var/lib/hotel/langgraph/checkpoints.db
-      CORS_ORIGINS: http://localhost:${CUSTOMER_FRONTEND_PORT:-8080},http://localhost:${MANAGER_FRONTEND_PORT:-8081}
+      ML_MODEL_PATH: ${ML_MODEL_PATH:-backend/ml/artifacts/risk_model.joblib}
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      RAG_COLLECTION_NAME: ${RAG_COLLECTION_NAME:-hotel_retention_policy}
+      RAG_PERSIST_DIRECTORY: ${RAG_PERSIST_DIRECTORY:-/var/lib/hotel/rag_store}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      RAG_POLICY_DOCUMENT_PATH: ${RAG_POLICY_DOCUMENT_PATH:-data/policy/Company_Retention_Policy_2026.pdf}
+      LANGGRAPH_CHECKPOINT_PATH: ${LANGGRAPH_CHECKPOINT_PATH:-/var/lib/hotel/langgraph/checkpoints.db}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${CUSTOMER_FRONTEND_PORT:-8080},http://localhost:${MANAGER_FRONTEND_PORT:-8081}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       NL_SQL_LLM_ENABLED: ${NL_SQL_LLM_ENABLED:-false}
       NL_SQL_LLM_MODEL: ${NL_SQL_LLM_MODEL:-openai/gpt-oss-20b}
