@@ -20,6 +20,9 @@ pipeline {
         NL_SQL_LLM_ENABLED = 'false'
         COMPOSE_PROJECT_NAME = "hotel-ci-${BUILD_NUMBER}"
         BACKEND_CI_IMAGE = "hotel-platform-backend-ci:${BUILD_NUMBER}"
+
+        DOCKER_BUILDKIT = '1'
+        COMPOSE_DOCKER_CLI_BUILD = '1'
     }
 
     stages {
