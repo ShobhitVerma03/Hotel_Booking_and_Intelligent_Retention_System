@@ -33,7 +33,8 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 COPY backend /app/backend
 COPY data/policy /app/data/policy
 COPY docker/backend-entrypoint.sh /app/docker/backend-entrypoint.sh
-RUN chmod +x /app/docker/backend-entrypoint.sh
+RUN sed -i 's/\r$//' /app/docker/backend-entrypoint.sh \
+    && chmod +x /app/docker/backend-entrypoint.sh
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/backend-entrypoint.sh"]
