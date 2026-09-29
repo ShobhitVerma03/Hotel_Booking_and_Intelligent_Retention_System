@@ -33,6 +33,14 @@ HIGH_RISK_POLICY = [{
     "distance": 0.1,
 }]
 
+LOW_RISK_POLICY = [{
+    "text": "Low-Risk Guests. Future-stay incentive: \u25cf 5% discount voucher. Discounts on current booking are prohibited.",
+    "source": "Company_Retention_Policy_2026.pdf",
+    "page": 3,
+    "chunk_id": "company-retention-policy-2026-p3-c0",
+    "distance": 0.1,
+}]
+
 
 class RetentionWorkflowTests(unittest.TestCase):
     @classmethod
@@ -136,6 +144,18 @@ class RetentionWorkflowTests(unittest.TestCase):
         self.assertIsNone(conflict["discount_percentage"])
         db.close()
 
+    def test_low_risk_recommendation_uses_policy_permitted_future_voucher(self):
+        recommendation = _recommendation({
+            "risk_category": "LOW",
+            "policy_results": LOW_RISK_POLICY,
+            "policy_context": LOW_RISK_POLICY[0]["text"],
+        })
+        self.assertEqual(recommendation["offer_type"], "future_stay_discount_voucher")
+        self.assertEqual(recommendation["discount_percentage"], 5.0)
+        self.assertEqual(recommendation["policy_limit_percentage"], 5.0)
+        self.assertFalse(recommendation["policy_conflict"])
+        self.assertIn("not a discount on the current booking", recommendation["reason"])
+
     def test_returning_customer_uses_real_phase6_prediction_node(self):
         db = self.Session()
         request = RetentionRequest(booking_id=self.returning_booking_id, customer_id=self.returning_id, status=RetentionRequestStatus.PENDING)
@@ -168,6 +188,34 @@ class RetentionWorkflowTests(unittest.TestCase):
         self.assertEqual(body["workflow_status"], WorkflowStatus.AWAITING_MANAGER)
         self.assertIn("recommendation", body)
         self.assertTrue(body["recommendation"]["requires_manager_review"])
+        db.close()
+
+    def test_manager_cancellation_resolution_is_persisted_and_role_protected(self):
+        db = self.Session()
+        booking = Booking(
+            customer_id=self.returning_id,
+            room_id=db.get(Booking, self.returning_booking_id).room_id,
+            check_in=date(2027, 3, 1), check_out=date(2027, 3, 3), guests=2,
+            total_amount=Decimal("12000"), status=BookingStatus.CANCEL_PENDING,
+        )
+        db.add(booking); db.flush()
+        request = RetentionRequest(booking_id=booking.booking_id, customer_id=self.returning_id, status=RetentionRequestStatus.PENDING)
+        db.add(request); db.commit()
+        request_id = request.request_id
+        customer_token = create_access_token(db.get(Customer, self.returning_id).user_id, "customer")
+        manager_token = create_access_token(self.manager_id, "manager")
+        endpoint = f"/api/v1/admin/cancellation-requests/{request_id}/resolution"
+        self.assertEqual(self.client.post(endpoint, json={"action": "approve_cancellation"}).status_code, 401)
+        self.assertEqual(self.client.post(endpoint, headers={"Authorization": f"Bearer {customer_token}"}, json={"action": "approve_cancellation"}).status_code, 403)
+        response = self.client.post(endpoint, headers={"Authorization": f"Bearer {manager_token}"}, json={"action": "approve_cancellation", "comment": "Approved after review"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["booking_status"], "cancelled")
+        db.expire_all()
+        persisted = db.get(RetentionRequest, request_id)
+        self.assertEqual(persisted.status, RetentionRequestStatus.CANCELLED)
+        self.assertEqual(persisted.booking.status, BookingStatus.CANCELLED)
+        self.assertEqual(persisted.manager_id, self.manager_id)
+        self.assertTrue(db.query(AuditLog).filter_by(event_type="booking.cancellation_approved", entity_id=str(request_id)).count())
         db.close()
 
     def _new_awaiting_manager_request(self):

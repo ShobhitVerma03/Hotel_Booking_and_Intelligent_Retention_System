@@ -76,6 +76,25 @@ def _policy_discount_limit(policy_context: str) -> float | None:
     return float(match.group(1)) if match else None
 
 
+def _policy_low_risk_future_voucher_limit(policy_context: str) -> float | None:
+    """Read a low-risk *future-stay* voucher limit from retrieved policy text.
+
+    This deliberately differs from a current-booking room-rate discount.  The
+    policy allows the former for low-risk guests and prohibits the latter.
+    """
+
+    match = re.search(
+        # PDF extraction may retain a bullet between the label and the
+        # percentage.  Accept only non-numeric formatting characters there;
+        # the percentage and the "discount voucher" wording still must come
+        # from retrieved policy text.
+        r"future\s*-?\s*stay\s+incentive\s*:\s*(?:[^\d]{0,80}?)(\d+(?:\.\d+)?)\s*%\s*discount\s+voucher",
+        policy_context,
+        flags=re.IGNORECASE,
+    )
+    return float(match.group(1)) if match else None
+
+
 def _recommendation(state: RetentionWorkflowState) -> dict:
     risk = state.get("risk_category") or "UNKNOWN"
     sources = _sources(state.get("policy_results", []))
@@ -132,17 +151,31 @@ def _recommendation(state: RetentionWorkflowState) -> dict:
             "policy_conflict": False,
         }
     else:
-        payload = {
-            "action": "propose_low_risk_relationship_building",
-            "offer_type": "relationship_building",
-            "discount_percentage": None,
-            "reason": "Retrieved low-risk policy context does not authorize a current-booking discount; manager review remains required.",
-            "risk_category": risk,
-            "policy_sources": sources,
-            "requires_manager_review": True,
-            "policy_limit_percentage": None,
-            "policy_conflict": False,
-        }
+        voucher_limit = _policy_low_risk_future_voucher_limit(policy_context)
+        if voucher_limit is not None:
+            payload = {
+                "action": "propose_low_risk_future_stay_voucher",
+                "offer_type": "future_stay_discount_voucher",
+                "discount_percentage": voucher_limit,
+                "reason": "Retrieved low-risk policy permits a future-stay discount voucher. This is not a discount on the current booking.",
+                "risk_category": risk,
+                "policy_sources": sources,
+                "requires_manager_review": True,
+                "policy_limit_percentage": voucher_limit,
+                "policy_conflict": False,
+            }
+        else:
+            payload = {
+                "action": "propose_low_risk_relationship_building",
+                "offer_type": "relationship_building",
+                "discount_percentage": None,
+                "reason": "Retrieved low-risk policy supports relationship-building actions but did not return an enforceable offer limit. Manager review remains required.",
+                "risk_category": risk,
+                "policy_sources": sources,
+                "requires_manager_review": True,
+                "policy_limit_percentage": None,
+                "policy_conflict": False,
+            }
     # Pydantic validation prevents malformed recommendations from entering state.
     return RetentionRecommendation.model_validate(payload).model_dump()
 
@@ -200,12 +233,23 @@ def build_retention_graph(db: Session, checkpointer: SqliteSaver):
         try:
             booking = state["booking_context"]
             risk = state.get("risk_category") or "UNKNOWN"
+            topic = {
+                "LOW": "low-risk permitted future-stay voucher, welcome amenity, and current-booking discount prohibition",
+                "MEDIUM": "medium-risk permitted reassurance and experience benefits",
+                "HIGH": "high-risk permitted room-rate discount limit and targeted intervention",
+            }.get(risk, "permitted retention actions when ML risk is unavailable")
             query = (
-                f"Retention policy for a {risk} cancellation-risk guest. "
-                f"Current booking is {booking['room_type']} with value {booking['total_amount']}. "
-                "What permitted retention actions and limits apply?"
+                f"Retention policy for a {risk} cancellation-risk guest. Find {topic}. "
+                f"Current booking is {booking['room_type']} with value {booking['total_amount']}."
             )
-            results = PolicyRAGService().retrieve_policy(query)
+            # A policy section can span adjacent page-aware chunks.  Retain the
+            # configured retrieval baseline, but ask for enough context for the
+            # workflow to evaluate both the permission and its constraint (for
+            # example, the low-risk future-stay incentive and the prohibition on
+            # a current-booking discount).  This remains semantic RAG retrieval;
+            # no policy amount is supplied by the workflow itself.
+            policy_top_k = min(10, max(5, get_settings().rag_top_k))
+            results = PolicyRAGService().retrieve_policy(query, top_k=policy_top_k)
             if not results:
                 raise RAGError("No policy context was retrieved")
             return {

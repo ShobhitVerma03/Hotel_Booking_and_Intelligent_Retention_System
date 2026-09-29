@@ -13,7 +13,11 @@ from backend.app.services.rag import PolicyRAGService, RAGError, RAGValidationEr
 from backend.app.schemas.workflow import RetentionWorkflowResponse
 from backend.app.schemas.nl_sql import NLQueryRequest, NLQueryResponse
 from backend.app.services.nl_sql import NLAnalyticsError, NLAnalyticsService
-from backend.app.schemas.retention import ManagerDecisionCreate, ManagerDecisionResponse
+from backend.app.schemas.retention import (
+    CancellationResolutionCreate, CancellationResolutionResponse,
+    ManagerDecisionCreate, ManagerDecisionResponse,
+)
+from backend.app.services.cancellation_resolution import resolve_cancellation_request
 from backend.app.services.retention_decision import decide_retention_request
 from backend.app.workflows.retention import RetentionWorkflowError, RetentionWorkflowService
 from backend.ml.features import customer_features
@@ -87,6 +91,29 @@ def retention_manager_decision(
         "request_status": request.status.value,
         "workflow_status": workflow_status,
         "final_offer": final.get("final_customer_offer"),
+    }
+
+
+@router.post("/cancellation-requests/{request_id}/resolution", response_model=CancellationResolutionResponse)
+def cancellation_resolution(
+    request_id: int,
+    payload: CancellationResolutionCreate,
+    manager=Depends(require_manager),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Persist a manager's direct cancellation approval or decline.
+
+    This endpoint does not generate or approve a retention offer.  Managers use
+    the existing recommendation/decision endpoints when they choose the
+    retention branch instead.
+    """
+
+    request = resolve_cancellation_request(db, request_id, manager, payload)
+    return {
+        "request_id": request.request_id,
+        "request_status": request.status.value,
+        "booking_status": request.booking.status.value,
+        "action": payload.action.value,
     }
 
 

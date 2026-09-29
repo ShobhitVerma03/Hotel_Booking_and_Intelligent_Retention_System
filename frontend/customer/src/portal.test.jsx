@@ -1,7 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { AuthContext, Book, Bookings, FormAuth, Protected, Retention, Rooms } from "./main";
+import { AuthContext, Book, BookingDetail, Bookings, FormAuth, Protected, Retention, Rooms } from "./main";
 
 const session = { token: "customer-token", user: { role: "customer", customer_id: 9 } };
 const withAuth = (ui) => <MemoryRouter><AuthContext.Provider value={{ session, save: vi.fn(), logout: vi.fn() }}>{ui}</AuthContext.Provider></MemoryRouter>;
@@ -46,4 +46,18 @@ test("booking history and retention status render backend responses", async () =
   render(<MemoryRouter initialEntries={["/retention/6"]}><AuthContext.Provider value={{ session, save: vi.fn(), logout: vi.fn() }}><Routes><Route path="/retention/:requestId" element={<Retention />} /></Routes></AuthContext.Provider></MemoryRouter>);
   await screen.findByText("Policy-approved rate");
   expect(screen.getByText(/available in a later phase/i)).toBeTruthy();
+});
+
+test("cancellation is submitted only after explicit confirmation", async () => {
+  global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ booking_id: 5, room_type: "Deluxe", room_number: "301", check_in: "2027-01-10", check_out: "2027-01-12", guests: 2, final_amount: 8400, status: "confirmed" }) });
+  render(<MemoryRouter initialEntries={["/bookings/5"]}><AuthContext.Provider value={{ session, save: vi.fn(), logout: vi.fn() }}><Routes><Route path="/bookings/:id" element={<BookingDetail />} /></Routes></AuthContext.Provider></MemoryRouter>);
+  await screen.findByText("Booking #5");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel booking" }));
+  expect(screen.getByRole("button", { name: "Confirm cancellation" })).toBeTruthy();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ request_id: 77, status: "pending" }) });
+  fireEvent.change(screen.getByLabelText("Cancellation reason"), { target: { value: "Plans changed" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
+  await screen.findByText(/Cancellation request #77 was submitted/i);
+  expect(global.fetch).toHaveBeenCalledTimes(2);
 });

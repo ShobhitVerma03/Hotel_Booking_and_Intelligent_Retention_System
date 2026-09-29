@@ -11,6 +11,25 @@ class ManagerDecisionAction(StrEnum):
     REJECT = "reject"
 
 
+class CancellationResolutionAction(StrEnum):
+    """A manager's direct cancellation resolution, distinct from an offer decision."""
+
+    APPROVE_CANCELLATION = "approve_cancellation"
+    DECLINE_CANCELLATION = "decline_cancellation"
+
+
+class CancellationResolutionCreate(BaseModel):
+    action: CancellationResolutionAction
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class CancellationResolutionResponse(BaseModel):
+    request_id: int
+    request_status: str
+    booking_status: str
+    action: CancellationResolutionAction
+
+
 class ManagerOfferModification(BaseModel):
     """A manager-provided final customer offer, validated against workflow policy."""
 
