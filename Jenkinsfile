@@ -1,6 +1,6 @@
 pipeline {
     // The controller runs as a Windows service. Any selected agent needs Git,
-    // Docker access, Docker Compose v2, Python 3, Node.js, and npm.
+    // Docker access, Docker Compose v2, Node.js, and npm.
     agent any
 
     options {
@@ -87,7 +87,9 @@ pipeline {
                             exit $startupStatus
                         }
                         docker compose up -d; if ($LASTEXITCODE -ne 0) { Exit-WithStartupDiagnostics $LASTEXITCODE }
-                        python docker/ci_wait_for_services.py; if ($LASTEXITCODE -ne 0) { Exit-WithStartupDiagnostics $LASTEXITCODE }
+                        # Reach the Windows published ports from the backend container.
+                        (Get-Content -Raw docker/ci_wait_for_services.py).Replace('http://127.0.0.1:', 'http://host.docker.internal:') | docker compose exec -T -e BACKEND_PORT -e CUSTOMER_FRONTEND_PORT -e MANAGER_FRONTEND_PORT backend python -
+                        if ($LASTEXITCODE -ne 0) { Exit-WithStartupDiagnostics $LASTEXITCODE }
                         docker compose exec -T backend python -m alembic -c /app/backend/alembic.ini current
                         if ($LASTEXITCODE -ne 0) { Exit-WithStartupDiagnostics $LASTEXITCODE }
                     '''
@@ -100,7 +102,7 @@ pipeline {
                 script { withCiSecrets {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
-                        python docker/ci_smoke_test.py | Tee-Object -FilePath integration-smoke.log
+                        (Get-Content -Raw docker/ci_smoke_test.py).Replace('http://127.0.0.1:', 'http://host.docker.internal:') | docker compose exec -T -e BACKEND_PORT -e CUSTOMER_FRONTEND_PORT -e MANAGER_FRONTEND_PORT -e BUILD_TAG backend python - | Tee-Object -FilePath integration-smoke.log
                         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                     '''
                 } }
