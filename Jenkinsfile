@@ -67,7 +67,7 @@ pipeline {
         }
 
         stage('Docker Compose Configuration Validation') {
-            steps { script { withCiSecrets { powershell 'docker compose config --quiet; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }' } } }
+            steps { script { withCiSecrets { powershell 'docker compose config | Out-Null; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }' } } }
         }
 
         stage('Docker Image Build') {
@@ -104,11 +104,15 @@ pipeline {
     post {
         always {
             script { withCiSecrets {
-                powershell '''
+                def cleanupStatus = powershell(returnStatus: true, script: '''
                     $ErrorActionPreference = 'Continue'
-                    docker compose logs --no-color | Out-File -FilePath docker-compose.log -Encoding utf8
-                    docker compose down --volumes --remove-orphans
-                '''
+                    docker compose logs | Out-File -FilePath docker-compose.log -Encoding utf8
+                    $logsStatus = $LASTEXITCODE
+                    docker compose down -v --remove-orphans
+                    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                    exit $logsStatus
+                ''')
+                if (cleanupStatus != 0) { echo "WARNING: Compose log collection or cleanup failed (exit ${cleanupStatus}); preserving the pipeline result." }
             } }
             archiveArtifacts artifacts: 'backend-test.log,integration-smoke.log,docker-compose.log', allowEmptyArchive: true
         }
