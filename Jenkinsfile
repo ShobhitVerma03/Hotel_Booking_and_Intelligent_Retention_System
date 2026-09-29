@@ -79,10 +79,17 @@ pipeline {
                 script { withCiSecrets {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
-                        docker compose up -d; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-                        python docker/ci_wait_for_services.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                        function Exit-WithStartupDiagnostics([int]$startupStatus) {
+                            $ErrorActionPreference = 'Continue'
+                            docker compose ps
+                            docker compose logs --tail=200 backend
+                            docker compose logs --tail=100 postgres
+                            exit $startupStatus
+                        }
+                        docker compose up -d; if ($LASTEXITCODE -ne 0) { Exit-WithStartupDiagnostics $LASTEXITCODE }
+                        python docker/ci_wait_for_services.py; if ($LASTEXITCODE -ne 0) { Exit-WithStartupDiagnostics $LASTEXITCODE }
                         docker compose exec -T backend python -m alembic -c /app/backend/alembic.ini current
-                        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                        if ($LASTEXITCODE -ne 0) { Exit-WithStartupDiagnostics $LASTEXITCODE }
                     '''
                 } }
             }
