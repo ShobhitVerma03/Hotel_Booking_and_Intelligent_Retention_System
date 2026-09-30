@@ -10,7 +10,10 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str | None) -> bool:
-    return bool(password_hash) and bcrypt.checkpw(password.encode(), password_hash.encode())
+    try:
+        return bool(password_hash) and bcrypt.checkpw(password.encode(), password_hash.encode())
+    except ValueError:
+        return False
 
 
 def create_access_token(user_id: int, role: str) -> str:

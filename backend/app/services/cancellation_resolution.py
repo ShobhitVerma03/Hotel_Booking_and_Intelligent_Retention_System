@@ -18,12 +18,13 @@ from backend.app.services.audit import log_event
 def resolve_cancellation_request(
     db: Session, request_id: int, manager: User, payload: CancellationResolutionCreate
 ) -> RetentionRequest:
-    request = db.get(RetentionRequest, request_id)
+    request = db.query(RetentionRequest).filter_by(request_id=request_id).with_for_update().first()
     if request is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cancellation request not found")
-    if request.decisions or request.status in {
-        RetentionRequestStatus.OFFERED,
-        RetentionRequestStatus.REJECTED,
+    if request.request_kind != "cancellation":
+        raise HTTPException(status_code=409, detail="This is a proactive retention request, not a cancellation")
+    if request.status in {
+        RetentionRequestStatus.ACCEPTED,
         RetentionRequestStatus.CANCELLED,
         RetentionRequestStatus.COMPLETED,
     }:
@@ -32,6 +33,10 @@ def resolve_cancellation_request(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only cancel-pending bookings can be resolved")
 
     request.manager_id = manager.user_id
+    from backend.app.models.entities import Offer
+    from backend.app.models.enums import OfferStatus
+    for offer in db.query(Offer).filter_by(booking_id=request.booking_id, status=OfferStatus.AVAILABLE_TO_CUSTOMER):
+        offer.status = OfferStatus.EXPIRED
     if payload.action is CancellationResolutionAction.APPROVE_CANCELLATION:
         request.status = RetentionRequestStatus.CANCELLED
         request.booking.status = BookingStatus.CANCELLED

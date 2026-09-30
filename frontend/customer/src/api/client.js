@@ -1,5 +1,5 @@
 // Empty is intentional for Docker: Nginx proxies the same-origin /api path.
-const baseUrl = import.meta.env?.VITE_API_BASE_URL || "";
+const baseUrl = (import.meta.env?.VITE_API_BASE_URL || "").replace(/\/+$/, "").replace(/\/api\/v1$/, "");
 
 export class ApiError extends Error { constructor(message, status) { super(message); this.status = status; } }
 export const apiUrl = (path) => `${baseUrl}/api/v1${path}`;

@@ -2,6 +2,10 @@
 # 1. SECURITY (CRITICAL)
 # ===========================
 .env
+.env.*
+!.env.example
+!.env.docker.example
+!.env.production.example
 .env.local
 .env.*.local
 # Keep .env.example so people know what keys they need!
@@ -83,3 +87,5 @@ backend/.pytest_cache/
 frontend/*/build/
 data/*.db-*
 notebooks/*.db
+
+backend/data/test-flow-*.db

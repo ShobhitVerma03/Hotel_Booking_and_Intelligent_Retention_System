@@ -17,6 +17,8 @@ def seed_database(db: Session) -> None:
             Room(room_number="301", room_type="Suite", price_per_night=Decimal("320.00"), capacity=4, status=RoomStatus.AVAILABLE),
         ])
     settings = get_settings()
+    if settings.app_env.lower() in {"production", "prod"} and not settings.dev_manager_password:
+        raise ValueError("DEV_MANAGER_PASSWORD is required when SEED_DATABASE=true in production")
     manager = db.query(User).filter(User.email == settings.dev_manager_email).first()
     manager_created = manager is None
     if manager_created:

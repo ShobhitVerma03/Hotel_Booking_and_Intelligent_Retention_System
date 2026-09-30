@@ -25,7 +25,7 @@ def available_rooms(db: Session, check_in, check_out, capacity=None, room_type=N
 
 def create_booking(db: Session, payload: BookingCreate) -> Booking:
     customer = db.get(Customer, payload.customer_id)
-    room = db.get(Room, payload.room_id)
+    room = db.query(Room).filter_by(room_id=payload.room_id).with_for_update().first()
     if customer is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
     if room is None:
@@ -53,17 +53,40 @@ def create_booking(db: Session, payload: BookingCreate) -> Booking:
     if first_booking:
         db.add(Offer(customer_id=customer.customer_id, booking_id=booking.booking_id, offer_type="first_time_welcome", discount=discount, description=f"First-time customer welcome discount of {discount}%", source="business_rule", status=OfferStatus.ACCEPTED))
         log_event(db, "offer.welcome_created", "booking", booking.booking_id, {"discount": str(discount)})
+    else:
+        retention = RetentionRequest(booking_id=booking.booking_id, customer_id=customer.customer_id,
+            request_kind="proactive", status=RetentionRequestStatus.PENDING)
+        db.add(retention)
+        db.flush()
     db.commit()
     db.refresh(booking)
+    if not first_booking:
+        prepare_retention(db, retention.request_id)
     return booking
 
 
 def request_cancellation(db: Session, booking: Booking, reason: str | None) -> RetentionRequest:
-    if booking.status == BookingStatus.CANCELLED:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cancelled bookings cannot receive cancellation requests")
-    if db.query(RetentionRequest).filter(RetentionRequest.booking_id == booking.booking_id, RetentionRequest.status.in_(ACTIVE_REQUESTS)).first():
+    booking = db.query(Booking).filter_by(booking_id=booking.booking_id).with_for_update().populate_existing().one()
+    if booking.status != BookingStatus.CONFIRMED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only confirmed bookings can request cancellation")
+    if db.query(RetentionRequest).filter(RetentionRequest.booking_id == booking.booking_id, RetentionRequest.request_kind == "cancellation", RetentionRequest.status.in_(ACTIVE_REQUESTS)).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An active cancellation request already exists for this booking")
+    # Supersede proactive processing for this booking before opening cancellation.
+    for previous in db.query(RetentionRequest).filter(RetentionRequest.booking_id == booking.booking_id, RetentionRequest.request_kind == "proactive", RetentionRequest.status.in_(ACTIVE_REQUESTS)):
+        previous.status = RetentionRequestStatus.COMPLETED
+    for offer in db.query(Offer).filter_by(booking_id=booking.booking_id, status=OfferStatus.AVAILABLE_TO_CUSTOMER):
+        offer.status = OfferStatus.EXPIRED
     booking.status = BookingStatus.CANCEL_PENDING
     request = RetentionRequest(booking_id=booking.booking_id, customer_id=booking.customer_id, reason=reason, status=RetentionRequestStatus.PENDING)
     db.add(request); db.flush(); log_event(db, "booking.cancellation_requested", "retention_request", request.request_id, {"booking_id": booking.booking_id}); db.commit(); db.refresh(request)
     return request
+
+
+def prepare_retention(db: Session, request_id: int) -> None:
+    import logging
+    from backend.app.workflows.retention import RetentionWorkflowService
+    try:
+        RetentionWorkflowService(db).run(request_id)
+    except Exception:
+        db.rollback()
+        logging.getLogger(__name__).exception("retention.preparation_failed request_id=%s; manager can retry", request_id)

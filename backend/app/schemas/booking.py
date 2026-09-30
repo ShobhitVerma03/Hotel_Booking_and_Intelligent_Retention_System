@@ -33,6 +33,7 @@ class BookingResponse(TimestampResponse):
     base_amount: Decimal | None = None
     final_amount: Decimal | None = None
     welcome_offer: dict | None = None
+    retention_requests: list[dict] = []
 
 
 class CancellationRequestCreate(BaseModel):
@@ -55,6 +56,8 @@ class CustomerRetentionResponse(TimestampResponse):
     reason: str | None
     booking_status: BookingStatus
     offer: dict | None = None
+    request_kind: str = "cancellation"
+    message: str = ""
 
 
 class CustomerBookingHistoryResponse(BaseModel):

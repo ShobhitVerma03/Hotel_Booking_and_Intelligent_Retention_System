@@ -7,14 +7,14 @@ from backend.app.models.entities import Customer, User
 from backend.app.models.enums import UserRole
 from backend.app.schemas.customer import CustomerCreate, CustomerIdentificationResponse, CustomerIdentify, CustomerResponse
 from backend.app.services.customer import identify_customer, normalize_email
-from backend.app.api.dependencies import require_customer
+from backend.app.api.dependencies import require_customer, require_manager
 from backend.app.models.entities import Booking
 from backend.app.schemas.booking import CustomerBookingHistoryResponse
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
 
-@router.post("", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_manager)])
 def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)) -> Customer:
     email = normalize_email(str(payload.email))
     if db.query(Customer).filter(Customer.email == email).first():
@@ -31,7 +31,7 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)) -> C
     return customer
 
 
-@router.post("/identify", response_model=CustomerIdentificationResponse)
+@router.post("/identify", response_model=CustomerIdentificationResponse, dependencies=[Depends(require_manager)])
 def identify_customer_endpoint(payload: CustomerIdentify, db: Session = Depends(get_db)) -> CustomerIdentificationResponse:
     customer, customer_type = identify_customer(db, payload)
     return CustomerIdentificationResponse(customer=customer, customer_type=customer_type)

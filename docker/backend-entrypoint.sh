@@ -21,4 +21,7 @@ python -m backend.app.database.initialize
 # from the trusted, image-bundled policy using stable IDs/upserts so subsequent
 # starts neither delete nor duplicate the policy collection.
 python -c "from backend.app.services.rag import PolicyIngestionService; PolicyIngestionService().ingest_policy()"
+if [ "$#" -eq 0 ]; then
+  set -- uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+fi
 exec "$@"

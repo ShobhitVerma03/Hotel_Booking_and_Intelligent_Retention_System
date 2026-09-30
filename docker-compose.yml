@@ -37,7 +37,7 @@ services:
       RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       RAG_POLICY_DOCUMENT_PATH: ${RAG_POLICY_DOCUMENT_PATH:-data/policy/Company_Retention_Policy_2026.pdf}
       LANGGRAPH_CHECKPOINT_PATH: ${LANGGRAPH_CHECKPOINT_PATH:-/var/lib/hotel/langgraph/checkpoints.db}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${CUSTOMER_FRONTEND_PORT:-8080},http://localhost:${MANAGER_FRONTEND_PORT:-8081}}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${CUSTOMER_FRONTEND_PORT:-8082},http://localhost:${MANAGER_FRONTEND_PORT:-8081}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       NL_SQL_LLM_ENABLED: ${NL_SQL_LLM_ENABLED:-false}
       NL_SQL_LLM_MODEL: ${NL_SQL_LLM_MODEL:-openai/gpt-oss-20b}
@@ -62,7 +62,7 @@ services:
       args:
         VITE_API_BASE_URL: ${CUSTOMER_API_BASE_URL:-}
     ports:
-      - "${CUSTOMER_FRONTEND_PORT:-8080}:80"
+      - "${CUSTOMER_FRONTEND_PORT:-8082}:80"
     depends_on:
       backend:
         condition: service_healthy

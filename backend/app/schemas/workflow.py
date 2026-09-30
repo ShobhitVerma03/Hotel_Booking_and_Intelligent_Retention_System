@@ -29,3 +29,4 @@ class RetentionWorkflowResponse(BaseModel):
     recommendation: RetentionRecommendation | None = None
     policy_sources: list[PolicySource] = []
     error: str | None = None
+    policy_results: list[dict] = []

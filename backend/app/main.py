@@ -47,6 +47,17 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
+@app.get("/", tags=["system"])
+async def root() -> dict[str, str]:
+    """Provide a stable landing response for service and deployment checks."""
+    return {
+        "service": "Intelligent Hotel Platform API",
+        "status": "running",
+        "health": f"{settings.api_v1_prefix}/health",
+        "docs": "/docs",
+    }
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})

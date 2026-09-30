@@ -1,0 +1,17 @@
+# Verification-only override. Does not publish an additional host port.
+services:
+  backend:
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: "no"
+    volumes: !reset []
+    environment:
+      APP_ENV: production
+      PORT: "10000"
+      SEED_DATABASE: "false"
+      CORS_ORIGINS: https://customer.example.com,https://manager.example.com
+      RAG_PERSIST_DIRECTORY: /tmp/hotel-rag
+      LANGGRAPH_CHECKPOINT_PATH: /tmp/hotel-graph/checkpoints.db
+      OMP_NUM_THREADS: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/api/v1/health')"]

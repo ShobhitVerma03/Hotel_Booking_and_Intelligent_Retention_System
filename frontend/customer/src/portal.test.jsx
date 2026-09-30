@@ -45,7 +45,7 @@ test("booking history and retention status render backend responses", async () =
   global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ request_id: 6, status: "offered", offer: { description: "Policy-approved rate", discount: 10, offer_type: "discount" } }) });
   render(<MemoryRouter initialEntries={["/retention/6"]}><AuthContext.Provider value={{ session, save: vi.fn(), logout: vi.fn() }}><Routes><Route path="/retention/:requestId" element={<Retention />} /></Routes></AuthContext.Provider></MemoryRouter>);
   await screen.findByText("Policy-approved rate");
-  expect(screen.getByText(/available in a later phase/i)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Accept offer and keep booking" })).toBeTruthy();
 });
 
 test("cancellation is submitted only after explicit confirmation", async () => {
@@ -56,8 +56,10 @@ test("cancellation is submitted only after explicit confirmation", async () => {
   expect(screen.getByRole("button", { name: "Confirm cancellation" })).toBeTruthy();
   expect(global.fetch).toHaveBeenCalledTimes(1);
   global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ request_id: 77, status: "pending" }) });
+  global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ booking_id: 5, status: "cancel_pending", retention_requests: [{ request_id: 77, request_kind: "cancellation", status: "pending", message: "Pending review" }] }) });
   fireEvent.change(screen.getByLabelText("Cancellation reason"), { target: { value: "Plans changed" } });
   fireEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
   await screen.findByText(/Cancellation request #77 was submitted/i);
-  expect(global.fetch).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+  expect(await screen.findByText("View cancellation request #77")).toBeTruthy();
 });

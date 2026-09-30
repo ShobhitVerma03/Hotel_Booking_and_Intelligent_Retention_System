@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.app.api.dependencies import require_manager
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -69,6 +69,7 @@ def retention_recommendation(request_id: int, manager=Depends(require_manager), 
         "recommendation": recommendation,
         "policy_sources": sources,
         "error": state.get("error"),
+        "policy_results": state.get("policy_results", []),
     }
 
 
@@ -130,7 +131,7 @@ def booking_data(b: Booking) -> dict:
 
 
 def request_data(r: RetentionRequest) -> dict:
-    return {"request_id": r.request_id, "booking_id": r.booking_id, "customer": {"customer_id": r.customer_id, "name": r.customer.name, "email": r.customer.email}, "booking_dates": {"check_in": r.booking.check_in, "check_out": r.booking.check_out}, "reason": r.reason, "status": r.status.value, "created_at": r.created_at}
+    return {"request_id": r.request_id, "booking_id": r.booking_id, "request_kind": r.request_kind, "booking_status": r.booking.status.value, "customer": {"customer_id": r.customer_id, "name": r.customer.name, "email": r.customer.email}, "booking_dates": {"check_in": r.booking.check_in, "check_out": r.booking.check_out}, "reason": r.reason, "status": r.status.value, "created_at": r.created_at}
 
 
 @router.get("/dashboard", response_model=Dashboard)
@@ -196,8 +197,10 @@ def room_detail(room_id: int, db: Session = Depends(get_db)):
 
 @router.get("/cancellation-requests", response_model=Page)
 @router.get("/retention-requests", response_model=Page)
-def retention_requests(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), status: RetentionRequestStatus | None = None, customer_id: int | None = None, booking_id: int | None = None, db: Session = Depends(get_db)):
+def retention_requests(http_request: Request, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), status: RetentionRequestStatus | None = None, customer_id: int | None = None, booking_id: int | None = None, db: Session = Depends(get_db)):
     query = db.query(RetentionRequest)
+    if "/cancellation-requests" in http_request.url.path:
+        query = query.filter(RetentionRequest.request_kind == "cancellation")
     if status: query = query.filter(RetentionRequest.status == status)
     if customer_id: query = query.filter(RetentionRequest.customer_id == customer_id)
     if booking_id: query = query.filter(RetentionRequest.booking_id == booking_id)
@@ -209,13 +212,13 @@ def retention_requests(page: int = Query(1, ge=1), page_size: int = Query(20, ge
 def retention_detail(request_id: int, db: Session = Depends(get_db)):
     r = db.get(RetentionRequest, request_id)
     if not r: raise HTTPException(404, "Retention request not found")
-    data = request_data(r); data["offers"] = [{"offer_id": o.offer_id, "type": o.offer_type, "discount": o.discount} for o in r.booking.offers]; data["decisions"] = [{"decision_id": d.decision_id, "action": d.action.value, "reason": d.reason, "created_at": d.created_at} for d in r.decisions]; data["audit_events"] = audit_for(db, "retention_request", request_id); return data
+    data = request_data(r); data["workflow"] = r.workflow_state; data["offers"] = [{"offer_id": o.offer_id, "type": o.offer_type, "discount": o.discount} for o in r.booking.offers]; data["decisions"] = [{"decision_id": d.decision_id, "action": d.action.value, "reason": d.reason, "created_at": d.created_at} for d in r.decisions]; data["audit_events"] = audit_for(db, "retention_request", request_id); return data
 
 @router.get('/retention-requests/{request_id}/risk')
 def retention_risk(request_id:int, db:Session=Depends(get_db)):
     r=db.get(RetentionRequest,request_id)
     if not r: raise HTTPException(404,'Retention request not found')
-    return {'request_id':request_id,'customer_id':r.customer_id,**predict(customer_features(db,r.customer))}
+    return {'request_id':request_id,'customer_id':r.customer_id,**predict(customer_features(db,r.customer,r.booking))}
 
 
 def audit_for(db: Session, entity_type: str, entity_id: int):

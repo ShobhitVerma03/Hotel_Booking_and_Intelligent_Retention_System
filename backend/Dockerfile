@@ -38,4 +38,4 @@ RUN sed -i 's/\r$//' /app/docker/backend-entrypoint.sh \
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/backend-entrypoint.sh"]
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD []

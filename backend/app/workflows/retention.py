@@ -1,13 +1,10 @@
-"""Explicit, checkpointed retention-recommendation workflow.
-
-Phase 8 deliberately stops at ``AWAITING_MANAGER``.  It reads business data,
-ML risk and policy context, then creates a structured recommendation.  It does
-not approve/reject a request, create an offer, or update a booking.
-"""
+"""LangGraph retention with policy-authorized offers and durable manager review."""
 
 from __future__ import annotations
 
 import re
+import logging
+from fastapi.encoders import jsonable_encoder
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
@@ -18,13 +15,17 @@ from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import get_settings
-from backend.app.models.entities import Customer, RetentionRequest
+from backend.app.models.entities import Customer, RetentionRequest, Offer
+from backend.app.models.enums import RetentionRequestStatus, OfferStatus
 from backend.app.services.audit import log_event
 from backend.app.services.rag import PolicyRAGService, RAGError
 from backend.app.schemas.workflow import RetentionRecommendation
 from backend.app.workflows.state import RetentionWorkflowState
 from backend.ml.features import customer_features
 from backend.ml.predict import predict
+
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowStatus:
@@ -38,6 +39,7 @@ class WorkflowStatus:
     MANAGER_MODIFIED = "MANAGER_MODIFIED"
     MANAGER_REJECTED = "MANAGER_REJECTED"
     FAILED = "FAILED"
+    AUTO_OFFERED = "AUTO_OFFERED"
 
 
 class RetentionWorkflowError(RuntimeError):
@@ -139,16 +141,18 @@ def _recommendation(state: RetentionWorkflowState) -> dict:
                 "policy_conflict": False,
             }
     elif risk == "MEDIUM":
+        allowed = re.search(r"Complimentary\s+breakfast\s+for\s+up\s+to\s+(\d+)\s+guests", policy_context, re.I)
+        automatic = bool(allowed and re.search(r"No\s+approval\s+required\s*\(system-approved\)", policy_context, re.I))
         payload = {
             "action": "propose_medium_risk_experience_benefit",
-            "offer_type": "experience_benefit_review",
+            "offer_type": "complimentary_breakfast" if automatic else None,
             "discount_percentage": None,
-            "reason": "Retrieved medium-risk policy context supports service or experience benefits; this workflow does not issue an offer.",
+            "reason": f"Complimentary breakfast for up to {allowed.group(1)} guests." if automatic else "Retrieved policy did not establish a system-approved benefit; manager policy review is required.",
             "risk_category": risk,
             "policy_sources": sources,
-            "requires_manager_review": True,
+            "requires_manager_review": not automatic,
             "policy_limit_percentage": None,
-            "policy_conflict": False,
+            "policy_conflict": not automatic,
         }
     else:
         voucher_limit = _policy_low_risk_future_voucher_limit(policy_context)
@@ -167,14 +171,14 @@ def _recommendation(state: RetentionWorkflowState) -> dict:
         else:
             payload = {
                 "action": "propose_low_risk_relationship_building",
-                "offer_type": "relationship_building",
+                "offer_type": None,
                 "discount_percentage": None,
                 "reason": "Retrieved low-risk policy supports relationship-building actions but did not return an enforceable offer limit. Manager review remains required.",
                 "risk_category": risk,
                 "policy_sources": sources,
                 "requires_manager_review": True,
                 "policy_limit_percentage": None,
-                "policy_conflict": False,
+                "policy_conflict": True,
             }
     # Pydantic validation prevents malformed recommendations from entering state.
     return RetentionRecommendation.model_validate(payload).model_dump()
@@ -220,13 +224,14 @@ def build_retention_graph(db: Session, checkpointer: SqliteSaver):
             customer = db.get(Customer, state["customer_id"])
             if not customer:
                 raise RetentionWorkflowError("Customer context was not found")
-            output = predict(customer_features(db, customer))
+            output = predict(customer_features(db, customer, db.get(RetentionRequest, state["request_id"]).booking))
             return {
                 "risk_score": output["risk_score"],
                 "risk_category": output["risk_category"],
                 "workflow_status": WorkflowStatus.RISK_EVALUATED,
             }
         except Exception:
+            logger.exception("retention.node_failed request_id=%s", state.get("request_id"))
             return {"workflow_status": WorkflowStatus.FAILED, "error": "ML risk prediction is unavailable"}
 
     def retrieve_policy(state: RetentionWorkflowState) -> dict:
@@ -235,13 +240,10 @@ def build_retention_graph(db: Session, checkpointer: SqliteSaver):
             risk = state.get("risk_category") or "UNKNOWN"
             topic = {
                 "LOW": "low-risk permitted future-stay voucher, welcome amenity, and current-booking discount prohibition",
-                "MEDIUM": "medium-risk permitted reassurance and experience benefits",
-                "HIGH": "high-risk permitted room-rate discount limit and targeted intervention",
+                "MEDIUM": "Medium-Risk Guests Permitted Actions Approval complimentary breakfast no approval required system-approved",
+                "HIGH": "High-Risk Guests Standard Permitted Actions Room rate discount up to limit Loyalty Tier Enhancements",
             }.get(risk, "permitted retention actions when ML risk is unavailable")
-            query = (
-                f"Retention policy for a {risk} cancellation-risk guest. Find {topic}. "
-                f"Current booking is {booking['room_type']} with value {booking['total_amount']}."
-            )
+            query = topic
             # A policy section can span adjacent page-aware chunks.  Retain the
             # configured retrieval baseline, but ask for enough context for the
             # workflow to evaluate both the permission and its constraint (for
@@ -258,6 +260,7 @@ def build_retention_graph(db: Session, checkpointer: SqliteSaver):
                 "workflow_status": WorkflowStatus.POLICY_RETRIEVED,
             }
         except Exception:
+            logger.exception("retention.node_failed request_id=%s", state.get("request_id"))
             return {"workflow_status": WorkflowStatus.FAILED, "error": "Policy retrieval is unavailable"}
 
     def generate_recommendation(state: RetentionWorkflowState) -> dict:
@@ -267,9 +270,10 @@ def build_retention_graph(db: Session, checkpointer: SqliteSaver):
                 "recommendation": recommendation,
                 "recommendation_reason": recommendation["reason"],
                 "proposed_offer": {key: recommendation[key] for key in ("offer_type", "discount_percentage")},
-                "workflow_status": WorkflowStatus.AWAITING_MANAGER,
+                "workflow_status": WorkflowStatus.AWAITING_MANAGER if recommendation["requires_manager_review"] else WorkflowStatus.RECOMMENDATION_READY,
             }
         except Exception:
+            logger.exception("retention.node_failed request_id=%s", state.get("request_id"))
             return {"workflow_status": WorkflowStatus.FAILED, "error": "Recommendation could not be validated against policy"}
 
     def continue_or_end(state: RetentionWorkflowState) -> Literal["risk", "policy", "recommendation", "end"]:
@@ -282,6 +286,18 @@ def build_retention_graph(db: Session, checkpointer: SqliteSaver):
             return "recommendation"
         return "end"
 
+    def publish_automatic_offer(state: RetentionWorkflowState) -> dict:
+        recommendation = state["recommendation"]
+        request = db.get(RetentionRequest, state["request_id"])
+        db.add(Offer(customer_id=request.customer_id, booking_id=request.booking_id,
+            offer_type=recommendation["offer_type"], discount=None,
+            description=recommendation["reason"], source="policy_automatic",
+            status=OfferStatus.AVAILABLE_TO_CUSTOMER))
+        request.status = RetentionRequestStatus.OFFERED
+        log_event(db, "retention.automatic_offer", "retention_request", request.request_id,
+                  {"offer_type": recommendation["offer_type"], "policy_sources": recommendation["policy_sources"]})
+        return {"workflow_status": WorkflowStatus.AUTO_OFFERED}
+
     graph = StateGraph(RetentionWorkflowState)
     graph.add_node("load_context", load_context)
     graph.add_node("evaluate_risk", evaluate_risk)
@@ -291,12 +307,14 @@ def build_retention_graph(db: Session, checkpointer: SqliteSaver):
     graph.add_conditional_edges("load_context", continue_or_end, {"risk": "evaluate_risk", "end": END})
     graph.add_conditional_edges("evaluate_risk", continue_or_end, {"policy": "retrieve_policy", "end": END})
     graph.add_conditional_edges("retrieve_policy", continue_or_end, {"recommendation": "generate_recommendation", "end": END})
-    graph.add_edge("generate_recommendation", END)
+    graph.add_node("publish_automatic_offer", publish_automatic_offer)
+    graph.add_conditional_edges("generate_recommendation", lambda state: "auto" if state.get("workflow_status") == WorkflowStatus.RECOMMENDATION_READY else "end", {"auto": "publish_automatic_offer", "end": END})
+    graph.add_edge("publish_automatic_offer", END)
     return graph.compile(checkpointer=checkpointer)
 
 
 class RetentionWorkflowService:
-    """Runs or resumes a request-specific workflow without mutating business state."""
+    """Persist business outcomes in PostgreSQL; SQLite caches graph execution."""
 
     def __init__(self, db: Session, manager_id: int | None = None) -> None:
         self.db = db
@@ -305,47 +323,46 @@ class RetentionWorkflowService:
         self.graph = build_retention_graph(db, self.checkpointer)
 
     def run(self, request_id: int) -> dict:
+        request = self.db.query(RetentionRequest).filter_by(request_id=request_id).with_for_update().first()
+        if request and request.workflow_state and request.workflow_state.get("workflow_status") != WorkflowStatus.FAILED:
+            return dict(request.workflow_state)
+        if request and request.status not in {RetentionRequestStatus.PENDING, RetentionRequestStatus.IN_REVIEW}:
+            raise RetentionWorkflowError("Resolved requests cannot generate new offers")
         config = {"configurable": {"thread_id": f"retention-request-{request_id}"}}
         try:
-            snapshot = self.graph.get_state(config)
-            if snapshot.values and snapshot.values.get("workflow_status") in {
-                WorkflowStatus.AWAITING_MANAGER,
-                WorkflowStatus.MANAGER_APPROVED,
-                WorkflowStatus.MANAGER_MODIFIED,
-                WorkflowStatus.MANAGER_REJECTED,
-            }:
-                return dict(snapshot.values)
-            result = self.graph.invoke({"request_id": request_id, "workflow_status": WorkflowStatus.STARTED}, config)
-        except Exception as exc:  # pragma: no cover - checkpointer runtime failure
-            raise RetentionWorkflowError("Retention workflow checkpoint execution failed") from exc
-
-        if result.get("workflow_status") == WorkflowStatus.AWAITING_MANAGER:
-            # Audits the preparation event only—not a manager decision or offer.
-            log_event(
-                self.db,
-                "retention.workflow_recommendation_generated",
-                "retention_request",
-                request_id,
-                {"risk_category": result.get("risk_category"), "workflow_status": result.get("workflow_status")},
-                self.manager_id,
-            )
-            self.db.commit()
-        return dict(result)
+            # SQLite is an execution cache only. PostgreSQL is authoritative.
+            result = dict(self.graph.invoke({"request_id": request_id, "workflow_status": WorkflowStatus.STARTED,
+                "error": None, "recommendation": None, "policy_results": [], "policy_context": ""}, config))
+            if request:
+                request.workflow_state = jsonable_encoder(result)
+                request.recommended_offer = result.get("recommendation")
+                request.risk_score = result.get("risk_score")
+                request.risk_level = result.get("risk_category")
+                log_event(self.db, "retention.workflow_recommendation_generated", "retention_request", request_id,
+                    {"risk_category": result.get("risk_category"), "workflow_status": result.get("workflow_status")}, self.manager_id)
+                self.db.commit()
+            logger.info("retention.workflow request_id=%s status=%s", request_id, result.get("workflow_status"))
+            return result
+        except Exception as exc:
+            self.db.rollback()
+            logger.exception("retention.workflow_failed request_id=%s", request_id)
+            raise RetentionWorkflowError("Retention workflow execution failed") from exc
 
     def state(self, request_id: int) -> dict:
-        """Return the persisted workflow snapshot for a request, if present."""
-
+        request = self.db.get(RetentionRequest, request_id)
+        if request and request.workflow_state:
+            return dict(request.workflow_state)
+        # Older installations can migrate pending snapshots on first read.
         config = {"configurable": {"thread_id": f"retention-request-{request_id}"}}
-        try:
-            return dict(self.graph.get_state(config).values or {})
-        except Exception as exc:  # pragma: no cover - checkpointer runtime failure
-            raise RetentionWorkflowError("Retention workflow checkpoint execution failed") from exc
+        snapshot = dict(self.graph.get_state(config).values or {})
+        if request and snapshot:
+            request.workflow_state = jsonable_encoder(snapshot)
+            self.db.flush()
+        return snapshot
 
     def record_manager_decision(self, request_id: int, status: str, decision: dict) -> None:
-        """Persist terminal manager workflow context alongside relational audit data."""
-
-        config = {"configurable": {"thread_id": f"retention-request-{request_id}"}}
-        try:
-            self.graph.update_state(config, {"workflow_status": status, "manager_decision": decision})
-        except Exception as exc:  # pragma: no cover - checkpointer runtime failure
-            raise RetentionWorkflowError("Retention workflow checkpoint execution failed") from exc
+        request = self.db.get(RetentionRequest, request_id)
+        state = self.state(request_id)
+        request.workflow_state = {**state, "workflow_status": status, "manager_decision": decision}
+        # Transaction commits alongside the relational decision, not independently.
+        self.db.flush()

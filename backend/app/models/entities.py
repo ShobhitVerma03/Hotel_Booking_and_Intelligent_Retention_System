@@ -103,6 +103,8 @@ class RetentionRequest(TimestampMixin, Base):
         Enum(RetentionRequestStatus), default=RetentionRequestStatus.PENDING, nullable=False
     )
     reason: Mapped[Optional[str]] = mapped_column(Text)
+    request_kind: Mapped[str] = mapped_column(String(20), default="cancellation", server_default="cancellation", nullable=False)
+    workflow_state: Mapped[Optional[dict]] = mapped_column(JSON)
     manager_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.user_id", ondelete="SET NULL"))
     booking: Mapped[Booking] = relationship(back_populates="retention_requests")
     customer: Mapped[Customer] = relationship(back_populates="retention_requests")

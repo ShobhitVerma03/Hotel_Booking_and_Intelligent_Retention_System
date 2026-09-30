@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from backend.app.schemas.customer import CustomerResponse
 
 
@@ -7,6 +7,13 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     phone: str | None = Field(default=None, max_length=50)
     password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_bytes(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes")
+        return value
 
 
 class LoginRequest(BaseModel):

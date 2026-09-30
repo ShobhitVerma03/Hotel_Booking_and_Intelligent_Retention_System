@@ -18,12 +18,12 @@ docker compose up --build
 
 URLs:
 
-- Customer portal: `http://localhost:18080` by default
-- Manager portal: `http://localhost:18081` by default
-- Backend health: `http://localhost:18000/api/v1/health` by default
-- Backend OpenAPI: `http://localhost:18000/docs` by default
+- Customer portal: `http://localhost:8082` by default
+- Manager portal: `http://localhost:8081` by default
+- Backend health: `http://localhost:8000/api/v1/health` by default
+- Backend OpenAPI: `http://localhost:8000/docs` by default
 
-The included Docker environment template uses `18000`, `18080`, and `18081`
+The included Docker environment template uses `8000`, `8082`, and `8081`
 to avoid common local port collisions; change only these host-port variables
 when a host port is already in use.
 
@@ -64,9 +64,9 @@ hard-coded in source.
 ## Verification
 
 ```powershell
-docker compose config
+docker compose config --quiet
 docker compose up --build
-Invoke-RestMethod http://localhost:18000/api/v1/health
+Invoke-RestMethod http://localhost:8000/api/v1/health
 docker compose logs backend
 ```
 
@@ -79,7 +79,7 @@ retention decision, policy search, and NL-to-SQL analytics query.
 - If migrations keep retrying, check `docker compose logs postgres backend` and
   confirm the required PostgreSQL values are present in `.env`.
 - If RAG has no collection after a clean start, the first manager policy search
-  may require the existing idempotent ingestion path; inspect backend logs.
+  fails startup clearly; inspect backend logs and rerun the documented ingestion command.
 - `docker compose down` retains volumes. Use `down -v` only when intentionally
   discarding local data.
 - On this Windows host, one Phase 6 regression can fail because Application

@@ -91,13 +91,14 @@ def decide_retention_request(
 ) -> tuple[RetentionDecision, str]:
     """Persist exactly one terminal manager decision and (if accepted) customer offer."""
 
-    request = db.get(RetentionRequest, request_id)
+    request = db.query(RetentionRequest).filter_by(request_id=request_id).with_for_update().first()
     if not request:
         raise HTTPException(status_code=404, detail="Retention request not found")
-    if request.status in _TERMINAL_REQUEST_STATUSES or request.decisions:
+    if request.status not in {RetentionRequestStatus.PENDING, RetentionRequestStatus.IN_REVIEW} or request.decisions:
         raise RetentionDecisionError("This retention request already has a final manager decision")
-    if request.booking.status != BookingStatus.CANCEL_PENDING:
-        raise RetentionDecisionError("Only cancel-pending bookings can receive a manager retention decision")
+    expected = BookingStatus.CONFIRMED if request.request_kind == "proactive" else BookingStatus.CANCEL_PENDING
+    if request.booking.status != expected:
+        raise RetentionDecisionError("Booking is no longer eligible for this retention decision")
 
     workflow, _state, original = _workflow_recommendation(db, request_id)
     final_offer: dict | None = None

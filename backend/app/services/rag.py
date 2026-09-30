@@ -8,6 +8,7 @@ knowing about ChromaDB's response format.
 from __future__ import annotations
 
 import logging
+import hashlib
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -74,7 +75,7 @@ class PolicyIngestionService:
             raise RAGError("Configured policy document is unavailable")
         try:
             reader = PdfReader(str(path))
-            pages = [(page.extract_text() or "").strip() for page in reader.pages]
+            pages = [" ".join((page.extract_text() or "").split()) for page in reader.pages]
         except Exception as exc:
             raise RAGError("Configured policy document could not be read") from exc
         if not pages or not any(pages):
@@ -128,12 +129,15 @@ class PolicyIngestionService:
         chunks = self.chunks_from_pages(pages)
         logger.info("Starting policy ingestion: document=%s pages=%d chunks=%d collection=%s", self.policy_path.name, len(pages), len(chunks), self.settings.rag_collection_name)
         try:
-            model = _embedding_model(self.settings.rag_embedding_model)
-            embeddings = model.encode([chunk.text for chunk in chunks], normalize_embeddings=True).tolist()
             collection = self._client().get_or_create_collection(
                 name=self.settings.rag_collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
+            fingerprint = hashlib.sha256(self.policy_path.read_bytes() + repr((self.settings.rag_embedding_model, self.settings.rag_chunk_size, self.settings.rag_chunk_overlap, "normalized-v2")).encode()).hexdigest()
+            if (collection.metadata or {}).get("fingerprint") == fingerprint and collection.count() == len(chunks):
+                return IngestionReport(self.policy_path.name, len(pages), len(chunks), self.settings.rag_collection_name, 0)
+            model = _embedding_model(self.settings.rag_embedding_model)
+            embeddings = model.encode([chunk.text for chunk in chunks], normalize_embeddings=True).tolist()
             # Stable IDs + upsert make re-ingestion non-destructive and idempotent.
             collection.upsert(
                 ids=[chunk.chunk_id for chunk in chunks],
@@ -141,6 +145,10 @@ class PolicyIngestionService:
                 metadatas=[chunk.metadata for chunk in chunks],
                 embeddings=embeddings,
             )
+            stale = set(collection.get()["ids"]) - {chunk.chunk_id for chunk in chunks}
+            if stale:
+                collection.delete(ids=sorted(stale))
+            collection.modify(metadata={"fingerprint": fingerprint})
         except RAGError:
             raise
         except Exception as exc:

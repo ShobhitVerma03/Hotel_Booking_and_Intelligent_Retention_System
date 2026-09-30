@@ -1,0 +1,75 @@
+# Free demo topology. Read docs/DEPLOYMENT.md before provisioning:
+# PostgreSQL expires after 30 days; full ML/RAG may exceed 512 MB.
+services:
+  - type: web
+    name: hotel-retention-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hotel-retention-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: AUTO_CREATE_SCHEMA
+        value: "false"
+      - key: SEED_DATABASE
+        value: "true"
+      - key: DEV_MANAGER_EMAIL
+        sync: false
+      - key: DEV_MANAGER_PASSWORD
+        sync: false
+      - key: RESET_SEED_MANAGER_PASSWORD
+        value: "false"
+      - key: RAG_PERSIST_DIRECTORY
+        value: /tmp/hotel-rag
+      - key: LANGGRAPH_CHECKPOINT_PATH
+        value: /tmp/hotel-workflow/checkpoints.db
+      - key: NL_SQL_LLM_ENABLED
+        value: "false"
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: TOKENIZERS_PARALLELISM
+        value: "false"
+  - type: web
+    name: hotel-customer
+    runtime: static
+    rootDir: frontend/customer
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+  - type: web
+    name: hotel-manager
+    runtime: static
+    rootDir: frontend/manager
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+databases:
+  - name: hotel-retention-db
+    plan: free
+    region: singapore
+    databaseName: hotel_platform
+    user: hotel_platform
+    ipAllowList: []
